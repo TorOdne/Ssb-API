@@ -1,0 +1,28 @@
+td {
+  border: 1px solid;
+  background-color: white;
+  
+}
+
+table {
+  border: 1px solid;
+  background-color: lightgrey;
+}
+
+th {
+  border: 1px solid;
+  background-color: lightskyblue;
+}
+
+#subC {
+  background-color: greenyellow;
+}
+
+#nay {
+  color: red;
+}
+
+#container {
+  height: 600px;
+}
+ 

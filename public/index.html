@@ -1,0 +1,278 @@
+<html>
+	<head>
+		<link rel="stylesheet" href="style.css">
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>SSB Statstikk</title>
+
+		<script type="text/javascript" src="https://json-stat.org/lib/json-stat.js"></script>
+		<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
+
+	</head>
+
+	<body id="body">
+
+		<div id="container" style=" margin: 0 auto">
+			<h2>SSB statistikk</h2>
+		</div>
+
+		<div id="dropContainer" style=" margin: 0 auto"></div>
+
+		<script type="text/javascript">
+					
+			const url="https://data.ssb.no/api/v0/no/table/11342";
+			
+					const query = {
+				"query": [
+					{
+					"code": "Region",
+					"selection": {
+						"filter": "vs:Kommune",
+						"values": [
+						"3101",
+						"0301",
+						"1506",
+						"1579"
+						]
+					}
+					},
+					{
+					"code": "Tid",
+					"selection": {
+						"filter": "item",
+						"values": [
+						"2019",
+						"2020",
+						"2021",
+						"2022",
+						"2023",
+						"2024"
+						]
+					}
+					}
+				],
+				"response": {
+					"format": "json-stat2"
+				}
+			}
+			
+			async function fetchData(url, method, body) {
+						
+				try {
+					const response = await fetch(url, {
+						method: method,
+						body: body,
+						headers: {
+							"Content-Type": "application/json"
+						}
+					});
+			
+					const result = await response.json();
+					
+					if (result) {
+						return result;
+					} else {
+						console.error("No data found");
+					}
+				} catch (error) {
+					console.error(error);
+				}
+			}
+			
+			async function processData() {
+				const result = await fetchData(url, "POST", JSON.stringify(query));
+				
+				const dataset = JSONstat(result).Dataset(0);
+
+				//finner labels her fordi jsonstat ikke fungerer på serveren
+				const regionDimension = dataset.Dimension("Region");
+				const tidDimension = dataset.Dimension("Tid");
+				const contentsCodeDimension = dataset.Dimension("ContentsCode");
+
+				const datapunktene_rad = contentsCodeDimension.length;
+				const tid_kol = tidDimension.length;
+				const kommuner = regionDimension.length;
+
+				const region = makeArray(regionDimension, kommuner);
+				const tid = makeArray(tidDimension, tid_kol);
+				const contentsCode = makeArray(contentsCodeDimension, datapunktene_rad);
+				
+				const labels = [{
+						regionDimension: region,
+						tidDimension: tid,
+						contentsCodeDimension: contentsCode
+					}]
+
+				const samletDataset = [{
+					regionDimension: region,
+					tidDimension: tid,
+					contentsCodeDimension: contentsCode,
+					dataset: dataset
+				}]
+				
+				return samletDataset;
+			}
+
+			function makeArray(data, length) {
+				//lager array av labels
+				let array = [];
+				for (let i = 0; length > i; i++) {
+					array.push(data.Category(i).label);
+				}
+				return array;
+			}
+
+			function createTable(dataset) {
+				const årArray = dataset.år;
+				const kommuneArray = dataset.kommune;
+				const datapunktArray = dataset.statistikkvariabel;
+				const kommuneData = dataset.data;
+
+				const container = document.getElementById("container");
+
+				//lag en tabel
+				const table = document.createElement("table");
+				table.id = "tabell";
+				container.appendChild(table);
+
+				// lag en tablerow 
+				const tRow = document.createElement("tr");
+				table.appendChild(tRow);
+
+				for (let i = -1; i < årArray.length; i++) {
+					const rowHeading = document.createElement("th");
+
+					//setter inn en label for kommune
+					if (i == -1) {
+						rowHeading.innerHTML = "kommune";
+					}
+					else {
+						rowHeading.innerHTML = årArray[i];
+					}
+					tRow.appendChild(rowHeading);
+				}
+
+				for (let i = 0; i < datapunktArray.length; i++) {
+					//setter inn row for statistikkvariabel / måletype
+					const tRow = document.createElement("tr");
+					table.appendChild(tRow);
+					const tD = document.createElement("th");
+					tD.innerHTML = datapunktArray[i];
+					tRow.appendChild(tD);
+
+					//setter inn row for kommune
+					for (let j = 0; j < kommuneArray.length; j++) {
+						const tRow = document.createElement("tr");
+						table.appendChild(tRow);
+						let tD = document.createElement("td");
+						tD.innerHTML = kommuneArray[j];
+						tRow.appendChild(tD);
+
+						// setter inn row for data
+						for (let k = 0; k < årArray.length; k++) {
+							tD = document.createElement("td");
+							tD.innerHTML = kommuneData[j][i][k];
+							tRow.appendChild(tD);
+						}
+					}
+				}
+			}
+
+
+			async function run() {
+				//hent data fra ssb og gjør det om til dataset
+				const dataset = await processData();
+				//send dataset til server og få tilbake et dataset med en 3 dimensjonal array
+				const newDataset = await fetchData("http://localhost:8080/datasets", "POST", JSON.stringify(dataset));
+				//lag en tabell til datasettet
+				createTable(newDataset);
+				//lag en dropdown meny til parameterne
+				createOptions(newDataset)
+
+			}
+
+			function createOptions(dataset) {
+				const dropContainer = document.getElementById("dropContainer")
+				const button = document.createElement("button");
+				//finner nøkler i dataset
+				const datasetKeys = Object.keys(dataset);
+				//fjerner data nøkkelen
+				datasetKeys.splice(datasetKeys.indexOf("data"), 1)
+	
+				for (let i = 0; i < datasetKeys.length; i++) {
+					createDropdown(dataset[datasetKeys[i]], datasetKeys[i]);
+				}
+
+				button.innerHTML = "Kjøra på";
+				button.onclick = function(){getParameters()};
+
+				dropContainer.appendChild(button);
+			}
+
+			function createDropdown(labelType, labelNavn) {
+				//lag elementer for overskrift, dropdown, og newline/br
+				const dropContainer = document.getElementById("dropContainer");
+				const subContainer = document.createElement("th");
+				const dropLabel = document.createElement("label");
+				const newDrop = document.createElement("select");
+				const brk = document.createElement("br");
+				
+				//gir subcontainer id subC
+				subContainer.id = "subC";
+
+				//setter overskrift
+				dropLabel.innerHTML = labelNavn;
+
+				//gjør det mulig å velge flere options i dropdown
+				newDrop.multiple = true;
+				newDrop.id = labelNavn;
+
+				//legg elementer i container
+				dropContainer.appendChild(subContainer);
+				subContainer.appendChild(dropLabel);
+				subContainer.appendChild(brk);
+				subContainer.appendChild(newDrop);
+				
+
+				//loop igjennom labels og legg options i dropdown
+				for (let label of labelType) {
+					const option = document.createElement("option");
+					option.innerHTML = label;
+					option.value = label;
+					newDrop.appendChild(option);
+				}
+			}
+
+			async function getParameters() {
+				const nay = document.createElement("div");
+				nay.innerHTML = "Du må velge minst en parameter fra hver av utvalgene!";
+				nay.id = "nay";
+				//bruker jquery for å hente valgte parametre og legge i array
+				const parameters = {
+					år: $("#år").val(),
+					kommuner: $("#kommune").val(),
+					statistikkvariabler: $("#statistikkvariabel").val()
+				}
+
+				if (document.getElementById("nay")) {
+						document.getElementById("nay").remove()
+					}
+
+				if (!parameters.år || !parameters.kommuner || !parameters.statistikkvariabler) {
+					body.appendChild(nay);
+				}
+
+				else {
+					const manipulatedDataset = await fetchData("http://localhost:8080/parameters", "POST", JSON.stringify(parameters));
+					console.log(manipulatedDataset);
+					document.getElementById("tabell").remove();
+					createTable(manipulatedDataset);
+				}
+			}
+
+			run();
+			
+			
+		</script>
+
+	</body>
+</html>
